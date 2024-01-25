@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: EUPL-1.2
+
+[package]
+license = "EUPL-1.2"
+name = "tiny2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iced = "0.10"
+rusb = "0.9"
+hexdump = "*"
+nix = "*"
+errno = "*"
+hex = "*"
+glob = "*"
+enum_dispatch = "*"
