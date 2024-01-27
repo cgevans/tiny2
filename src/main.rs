@@ -3,8 +3,8 @@
 mod usbio;
 
 use errno::Errno;
-use iced::widget::{button, column, container};
-use iced::{executor, window, Alignment, Length};
+use iced::widget::{button, column, container, row, text, text_input, toggler};
+use iced::{executor, window, Alignment, Length, Padding};
 use iced::{Application, Command, Element, Settings, Theme};
 
 #[derive(Debug)]
@@ -68,7 +68,7 @@ impl Camera {
             Err(err) => return Err(err),
         };
 
-        println!("{:?}", data);
+        println!("{:}", hex::encode(&data));
 
         match self.io(unit, selector, usbio::UVC_SET_CUR, data) {
             Ok(_) => Ok(()),
@@ -95,46 +95,88 @@ enum TrackingType {
     None,
     Face,
     FaceUpperBody,
+    FaceCloseUp,
+    FaceHeadless,
+    FaceLowerBody,
     Whiteboard,
     Group,
     Hand,
     Desk,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 
 enum Message {
     ChangeTracking(TrackingType),
-    Succeeded,
+    ChangeHDR(bool),
+    TextInput(String),
+    SendCommand,
 }
 
 struct MainPanel {
     camera: Camera,
     tracking: TrackingType,
+    hdr_on: bool,
+    text_input: String,
 }
 
 impl Application for MainPanel {
     fn view(&self) -> Element<Message> {
         let c = column![
             button("None").on_press(Message::ChangeTracking(TrackingType::None)),
-            button("Face / No Zoom").on_press(Message::ChangeTracking(TrackingType::Face)),
-            button("Face / Upper Body")
-                .on_press(Message::ChangeTracking(TrackingType::FaceUpperBody)),
-            button("Whiteboard").on_press(Message::ChangeTracking(TrackingType::Whiteboard)),
-            button("Group").on_press(Message::ChangeTracking(TrackingType::Group)),
-            button("Hand").on_press(Message::ChangeTracking(TrackingType::Hand)),
-            button("Desk").on_press(Message::ChangeTracking(TrackingType::Desk))
+            button("Normal Tracking").on_press(Message::ChangeTracking(TrackingType::Face)),
+            row![
+                button("Upper Body")
+                    .on_press(Message::ChangeTracking(TrackingType::FaceUpperBody))
+                    .width(Length::Fill),
+                button("Close-up")
+                    .on_press(Message::ChangeTracking(TrackingType::FaceCloseUp))
+                    .width(Length::Fill),
+            ]
+            .spacing(10),
+            row![
+                button("Headless")
+                    .on_press(Message::ChangeTracking(TrackingType::FaceHeadless))
+                    .width(Length::Fill),
+                button("Lower Body")
+                    .on_press(Message::ChangeTracking(TrackingType::FaceLowerBody))
+                    .width(Length::Fill),
+            ]
+            .spacing(10),
+            row![
+                button("Desk")
+                    .on_press(Message::ChangeTracking(TrackingType::Desk))
+                    .width(Length::Fill),
+                button("Whiteboard")
+                    .on_press(Message::ChangeTracking(TrackingType::Whiteboard))
+                    .width(Length::Fill),
+            ]
+            .spacing(10),
+            row![
+                button("Hand")
+                    .on_press(Message::ChangeTracking(TrackingType::Hand))
+                    .width(Length::Fill),
+                button("Group")
+                    .on_press(Message::ChangeTracking(TrackingType::Group))
+                    .width(Length::Fill),
+            ]
+            .spacing(10),
+            toggler(
+                Some("HDR".to_string()),
+                self.hdr_on,
+                |x| Message::ChangeHDR(x)
+            ),
+            text_input("0x06 hex string", &self.text_input)
+                .on_input(|s| Message::TextInput(s))
+                .on_submit(Message::SendCommand)
         ]
         .width(Length::Fill)
+        .height(Length::Fill)
         .align_items(Alignment::Center)
-        .spacing(10);
-
-        container(c)
-            .center_x()
-            .center_y()
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        .spacing(10)
+        .padding(10)
+        .into();
+        c
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -144,7 +186,25 @@ impl Application for MainPanel {
                 set_tracking_mode(&self.camera, tracking_type);
                 Command::none()
             }
-            Message::Succeeded => Command::none(),
+            Message::ChangeHDR(new_mode) => {
+                self.hdr_on = new_mode;
+                let cmd = if new_mode {
+                    [0x01, 0x01, 0x01]
+                } else {
+                    [0x01, 0x01, 0x00]
+                };
+                self.camera.send_cmd(0x2, 0x6, &cmd).unwrap();
+                Command::none()
+            }
+            Message::TextInput(s) => {
+                self.text_input = s;
+                Command::none()
+            }
+            Message::SendCommand => {
+                let c = hex::decode(&self.text_input).unwrap();
+                self.camera.send_cmd(0x2, 0x6, &c).unwrap();
+                Command::none()
+            }
         }
     }
 
@@ -163,6 +223,8 @@ impl Application for MainPanel {
             MainPanel {
                 camera,
                 tracking: TrackingType::None,
+                hdr_on: true,
+                text_input: String::new(), // FIXME
             },
             Command::none(),
         )
@@ -183,6 +245,9 @@ fn set_tracking_mode(camera: &Camera, mode: TrackingType) {
         TrackingType::Whiteboard => [0x16, 0x02, 0x04, 0x00],
         TrackingType::Group => [0x16, 0x02, 0x01, 0x00],
         TrackingType::Hand => [0x16, 0x02, 0x03, 0x00],
+        TrackingType::FaceCloseUp => [0x16, 0x02, 0x02, 0x02],
+        TrackingType::FaceHeadless => [0x16, 0x02, 0x02, 0x03],
+        TrackingType::FaceLowerBody => [0x16, 0x02, 0x02, 0x04],
     };
     camera.send_cmd(0x2, 0x6, &cmd).unwrap();
 }
@@ -190,8 +255,8 @@ fn set_tracking_mode(camera: &Camera, mode: TrackingType) {
 fn main() -> iced::Result {
     MainPanel::run(Settings {
         window: window::Settings {
-            size: (300, 500),
-            resizable: true,
+            size: (300, 350),
+            resizable: false,
             decorations: true,
             ..Default::default()
         },
