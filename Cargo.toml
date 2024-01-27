@@ -9,15 +9,17 @@ description = "A simple OBSBot Tiny2 GUI control panel for Linux"
 homepage = "https://github.com/cgevans/tiny2"
 repository = "https://github.com/cgevans/tiny2"
 authors = ["Constantine Evans <tiny2@mb.costi.net>"]
+readme = "README.md"
+keywords = ["obsbot", "tiny2", "camera", "webcam"]
+categories = ["hardware-support"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 iced = "0.10"
 rusb = "0.9"
-hexdump = "*"
-nix = "*"
-errno = "*"
-hex = "*"
-glob = "*"
-enum_dispatch = "*"
+nix = "0"
+errno = "0"
+hex = "0"
+glob = "0"
+enum_dispatch = "0.3"

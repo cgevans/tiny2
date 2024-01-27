@@ -24,12 +24,12 @@ impl Camera {
         self.handle.info()
     }
 
-    pub fn dump(&self) -> Result<(), Errno> {
-        let mut data = [0u8; 60];
-        self.get_cur(0x2, 0x6, &mut data)?;
-        hexdump::hexdump(&data);
-        Ok(())
-    }
+    // pub fn dump(&self) -> Result<(), Errno> {
+    //     let mut data = [0u8; 60];
+    //     self.get_cur(0x2, 0x6, &mut data)?;
+    //     hexdump::hexdump(&data);
+    //     Ok(())
+    // }
 
     fn send_cmd(&self, unit: u8, selector: u8, cmd: &[u8]) -> Result<(), errno::Errno> {
         let mut data = [0u8; 60];
