@@ -5,6 +5,10 @@ license = "EUPL-1.2"
 name = "tiny2"
 version = "0.1.0"
 edition = "2021"
+description = "A simple OBSBot Tiny2 GUI control panel for Linux"
+homepage = "https://github.com/cgevans/tiny2"
+repository = "https://github.com/cgevans/tiny2"
+authors = ["Constantine Evans <tiny2@mb.costi.net>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
