@@ -3,8 +3,11 @@
 mod usbio;
 
 use errno::Errno;
+use usbio::UvcUsbIo;
 use std::{fmt::Display, io};
 use thiserror::Error;
+
+
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -16,6 +19,8 @@ pub enum Error {
     IOError(#[from] io::Error),
     #[error("Osc error: {0}")]
     OscError(#[from] rosc::OscError),
+    #[error("no camera found")]
+    NoCameraFound,
 }
 
 #[derive(Debug)]
@@ -164,11 +169,8 @@ impl OBSBotWebCam for Camera {
 }
 
 impl Camera {
-    pub fn new(hint: &str) -> Result<Self, errno::Errno> {
-        match usbio::open_camera(hint) {
-            Ok(camera) => Ok(Self { handle: camera }),
-            Err(err) => Err(err),
-        }
+    pub fn new(hint: &str) -> Result<Self, Error> {
+        Ok(Self { handle: usbio::open_camera(hint)? })
     }
 
     pub fn info(&self) -> Result<(), Errno> {
