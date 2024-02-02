@@ -163,19 +163,13 @@ pub struct CameraHandle {
 // The first match will be selected
 pub fn open_camera(hint: &str) -> Result<CameraHandle, errno::Errno> {
     match uvc_open_camera(hint) {
-        Ok(file) => {
-            Ok(CameraHandle {
-                camera_handle: CameraHandleType::UvcCameraHandle(UvcCameraHandle { handle: file }),
-            })
-        }
+        Ok(file) => Ok(CameraHandle {
+            camera_handle: CameraHandleType::UvcCameraHandle(UvcCameraHandle { handle: file }),
+        }),
         Err(_) => match usb_open_camera(hint) {
-            Ok(dev) => {
-                Ok(CameraHandle {
-                    camera_handle: CameraHandleType::UsbCameraHandle(UsbCameraHandle {
-                        handle: dev,
-                    }),
-                })
-            }
+            Ok(dev) => Ok(CameraHandle {
+                camera_handle: CameraHandleType::UsbCameraHandle(UsbCameraHandle { handle: dev }),
+            }),
             Err(error) => panic!("Can't open {} {:?}", hint, error),
         },
     }
@@ -198,29 +192,24 @@ fn uvc_open_camera(hint: &str) -> Result<std::fs::File, errno::Errno> {
         require_literal_separator: true,
         require_literal_leading_dot: true,
     };
-    for entry in glob_with("/dev/video*", options).unwrap() {
-        if let Ok(path) = entry {
-            if let Ok(device) = File::open(&path) {
-                if let Ok(video_info) = v4l2_capability::new(&device) {
-                    // println!("Info: {}\nCard: {:?}\nBus:  {:?}\ndc {:#X}", , video_info.card, video_info.bus_info, video_info.device_caps & 0x800000);
-                    if (str::from_utf8(&video_info.card)
-                        .unwrap()
-                        .contains(hint)
-                        || str::from_utf8(&video_info.bus_info)
-                            .unwrap()
-                            .contains(hint))
-                        && (video_info.device_caps & 0x800000 == 0)
-                    {
-                        return Ok(device);
-                    }
+    for path in glob_with("/dev/video*", options).unwrap().flatten() {
+        if let Ok(device) = File::open(&path) {
+            if let Ok(video_info) = v4l2_capability::new(&device) {
+                // println!("Info: {}\nCard: {:?}\nBus:  {:?}\ndc {:#X}", , video_info.card, video_info.bus_info, video_info.device_caps & 0x800000);
+                if (str::from_utf8(&video_info.card).unwrap().contains(hint)
+                    || str::from_utf8(&video_info.bus_info).unwrap().contains(hint))
+                    && (video_info.device_caps & 0x800000 == 0)
+                {
+                    return Ok(device);
                 }
             }
         }
     }
-    Err(errno::Errno(errno()))// Why do we even need this line?
+    Err(errno::Errno(errno())) // Why do we even need this line?
 }
 
 #[repr(C)]
+#[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct v4l2_capability {
     driver: [u8; 16],
@@ -240,12 +229,8 @@ impl v4l2_capability {
 
         unsafe {
             match ioctl_videoc_querycap(dev.as_raw_fd(), &mut query) {
-                Ok(_) => {
-                    Ok(query[0])
-                }
-                _ => {
-                    Err(errno::Errno(errno()))
-                }
+                Ok(_) => Ok(query[0]),
+                _ => Err(errno::Errno(errno())),
             }
         }
     }
@@ -260,6 +245,7 @@ ioctl_read_buf!(
     v4l2_capability
 );
 
+#[allow(non_camel_case_types)]
 #[repr(C)]
 pub struct uvc_xu_control_query {
     unit: u8,
@@ -309,33 +295,30 @@ pub fn usb_open_camera(hint: &str) -> Result<DeviceHandle<rusb::GlobalContext>, 
     for device in rusb::devices().unwrap().iter() {
         let device_desc = device.device_descriptor().unwrap();
 
-        match device.open() {
-            Ok(mut camera) => {
-                let product = match camera.read_product_string_ascii(&device_desc) {
-                    Ok(text) => text,
-                    Err(_) => "unknown".to_string(),
-                };
-                let manufacturer = match camera.read_manufacturer_string_ascii(&device_desc) {
-                    Ok(text) => text,
-                    Err(_) => "unknown".to_string(),
-                };
+        if let Ok(mut camera) = device.open() {
+            let product = match camera.read_product_string_ascii(&device_desc) {
+                Ok(text) => text,
+                Err(_) => "unknown".to_string(),
+            };
+            let manufacturer = match camera.read_manufacturer_string_ascii(&device_desc) {
+                Ok(text) => text,
+                Err(_) => "unknown".to_string(),
+            };
 
-                if format!(
-                    "{:04x}:{:04x}",
-                    device_desc.vendor_id(),
-                    device_desc.product_id()
-                )
-                .eq(hint)
-                    || product.contains(hint)
-                    || manufacturer.contains(hint)
-                {
-                    camera.set_auto_detach_kernel_driver(true)?;
-                    camera.claim_interface(0)?;
+            if format!(
+                "{:04x}:{:04x}",
+                device_desc.vendor_id(),
+                device_desc.product_id()
+            )
+            .eq(hint)
+                || product.contains(hint)
+                || manufacturer.contains(hint)
+            {
+                camera.set_auto_detach_kernel_driver(true)?;
+                camera.claim_interface(0)?;
 
-                    return Ok(camera);
-                }
+                return Ok(camera);
             }
-            _ => (),
         }
     }
     Err(rusb::Error::NoDevice)
