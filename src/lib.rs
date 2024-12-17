@@ -169,11 +169,11 @@ impl OBSBotWebCam for Camera {
                 self.send_cmd(0x2, 0x2, &MANUAL_EXP_CMD)?;
             }
             ExposureMode::Global => {
-                self.send_cmd(0x2, 0x6, &AUTO_EXP_CMD)?;
+                self.send_cmd(0x2, 0x2, &AUTO_EXP_CMD)?;
                 self.send_cmd(0x2, 0x6, &[0x03, 0x01, 0x00])?;
             }
             ExposureMode::Face => {
-                self.send_cmd(0x2, 0x6, &AUTO_EXP_CMD)?;
+                self.send_cmd(0x2, 0x2, &AUTO_EXP_CMD)?;
                 self.send_cmd(0x2, 0x6, &[0x03, 0x01, 0x01])?;
             }
         };
