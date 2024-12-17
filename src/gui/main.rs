@@ -1,18 +1,20 @@
-
 use iced::widget::{button, column, row, text, text_input, toggler};
 use iced::{executor, window, Alignment, Length};
 use iced::{Application, Command, Element, Settings, Theme};
 
-use tiny2::{AIMode, Camera, OBSBotWebCam};
+use tiny2::{AIMode, Camera, OBSBotWebCam, ExposureMode};
 
 #[derive(Debug, Clone, PartialEq)]
-
 enum Message {
     ChangeTracking(AIMode),
     ChangeHDR(bool),
+    ChangeExposure(ExposureMode),
     TextInput(String),
+    TextInput02(String),
     SendCommand,
+    SendCommand02,
     HexDump,
+    HexDump02,
 }
 
 struct MainPanel {
@@ -20,6 +22,7 @@ struct MainPanel {
     tracking: AIMode,
     hdr_on: bool,
     text_input: String,
+    text_input_02: String,
 }
 
 impl Application for MainPanel {
@@ -63,6 +66,18 @@ impl Application for MainPanel {
                     .width(Length::Fill),
             ]
             .spacing(10),
+            row![
+                button("Manual")
+                    .on_press(Message::ChangeExposure(ExposureMode::Manual))
+                    .width(Length::Fill),
+                button("Face")
+                    .on_press(Message::ChangeExposure(ExposureMode::Face))
+                    .width(Length::Fill),
+                button("Global")
+                    .on_press(Message::ChangeExposure(ExposureMode::Global))
+                    .width(Length::Fill),
+            ]
+            .spacing(10),
             toggler(
                 Some("HDR".to_string()),
                 self.hdr_on,
@@ -71,8 +86,14 @@ impl Application for MainPanel {
             text_input("0x06 hex string", &self.text_input)
                 .on_input(Message::TextInput)
                 .on_submit(Message::SendCommand),
-            button("Dump")
+            text_input("0x02 hex string", &self.text_input_02)
+                .on_input(Message::TextInput02)
+                .on_submit(Message::SendCommand02),
+            button("Dump 0x06")
                 .on_press(Message::HexDump)
+                .width(Length::Fill),
+            button("Dump 0x02")
+                .on_press(Message::HexDump02)
                 .width(Length::Fill),
             text(self.tracking)
         ]
@@ -97,8 +118,16 @@ impl Application for MainPanel {
                 self.camera.set_hdr_mode(new_mode).unwrap();
                 Command::none()
             }
+            Message::ChangeExposure(mode) => {
+                self.camera.set_exposure_mode(mode).unwrap();
+                Command::none()
+            }
             Message::TextInput(s) => {
                 self.text_input = s;
+                Command::none()
+            }
+            Message::TextInput02(s) => {
+                self.text_input_02 = s;
                 Command::none()
             }
             Message::SendCommand => {
@@ -106,8 +135,17 @@ impl Application for MainPanel {
                 self.camera.send_cmd(0x2, 0x6, &c).unwrap();
                 Command::none()
             }
+            Message::SendCommand02 => {
+                let c = hex::decode(&self.text_input_02).unwrap();
+                self.camera.send_cmd(0x2, 0x2, &c).unwrap();
+                Command::none()
+            }
             Message::HexDump => {
                 self.camera.dump().unwrap();
+                Command::none()
+            }
+            Message::HexDump02 => {
+                self.camera.dump_02().unwrap();
                 Command::none()
             }
         }
@@ -131,7 +169,8 @@ impl Application for MainPanel {
                 camera,
                 tracking: status.ai_mode,
                 hdr_on: status.hdr_on,
-                text_input: String::new(), // FIXME
+                text_input: String::new(),
+                text_input_02: String::new(),
             },
             Command::none(),
         )
@@ -145,7 +184,7 @@ impl Application for MainPanel {
 fn main() -> iced::Result {
     MainPanel::run(Settings {
         window: window::Settings {
-            size: (300, 450),
+            size: (300, 540),
             resizable: false,
             decorations: true,
             ..Default::default()

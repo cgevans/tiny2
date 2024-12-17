@@ -7,7 +7,8 @@ use usbio::UvcUsbIo;
 use std::{fmt::Display, io};
 use thiserror::Error;
 
-
+const AUTO_EXP_CMD: [u8; 18] = [0xaa, 0x25, 0x16, 0x00, 0x0c, 0x00, 0x58, 0x91, 0x0a, 0x02, 0x82, 0x29, 0x05, 0x00, 0xb2, 0xaf, 0x02, 0x04];
+const MANUAL_EXP_CMD: [u8; 18] = [0xaa, 0x25, 0x15, 0x00, 0x0c, 0x00, 0xa8, 0x9e, 0x0a, 0x02, 0x82, 0x29, 0x05, 0x00, 0xf9, 0x27, 0x01, 0x32];
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -70,6 +71,13 @@ pub enum AIMode {
     Whiteboard,
     Hand,
     Group,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExposureMode {
+    Manual,
+    Global,
+    Face
 }
 
 impl Display for AIMode {
@@ -135,6 +143,7 @@ pub trait OBSBotWebCam {
     fn set_ai_mode(&self, mode: AIMode) -> Result<(), Error>;
     fn get_ai_mode(&self) -> Result<AIMode, Error>;
     fn set_hdr_mode(&self, mode: bool) -> Result<(), Error>;
+    fn set_exposure_mode(&self, mode: ExposureMode) -> Result<(), Error>;
 }
 
 impl OBSBotWebCam for Camera {
@@ -153,6 +162,25 @@ impl OBSBotWebCam for Camera {
         };
         self.send_cmd(0x2, 0x6, &cmd)
     }
+
+    fn set_exposure_mode(&self, mode: ExposureMode) -> Result<(), Error> {
+        match mode {
+            ExposureMode::Manual => {
+                self.send_cmd(0x2, 0x2, &MANUAL_EXP_CMD)?;
+            }
+            ExposureMode::Global => {
+                self.send_cmd(0x2, 0x6, &AUTO_EXP_CMD)?;
+                self.send_cmd(0x2, 0x6, &[0x03, 0x01, 0x00])?;
+            }
+            ExposureMode::Face => {
+                self.send_cmd(0x2, 0x6, &AUTO_EXP_CMD)?;
+                self.send_cmd(0x2, 0x6, &[0x03, 0x01, 0x01])?;
+            }
+        };
+        Ok(())
+    }
+
+
 
     fn set_hdr_mode(&self, mode: bool) -> Result<(), Error> {
         let cmd = if mode {
@@ -187,6 +215,13 @@ impl Camera {
     pub fn dump(&self) -> Result<(), Errno> {
         let mut data: [u8; 60] = [0u8; 60];
         self.get_cur(0x2, 0x6, &mut data)?;
+        hexdump::hexdump(&data);
+        Ok(())
+    }
+
+    pub fn dump_02(&self) -> Result<(), Errno> {
+        let mut data: [u8; 60] = [0u8; 60];
+        self.get_cur(0x2, 0x2, &mut data)?;
         hexdump::hexdump(&data);
         Ok(())
     }
@@ -229,7 +264,7 @@ impl Camera {
             Err(err) => return Err(err),
         };
 
-        println!("{:}", hex::encode(&data));
+        println!("{:} {:} {:}", unit, selector, hex::encode(&data));
 
         match self.io(unit, selector, usbio::UVC_SET_CUR, data) {
             Ok(_) => Ok(()),

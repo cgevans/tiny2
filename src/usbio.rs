@@ -145,6 +145,28 @@ pub struct uvc_xu_control_query {
     data: *mut u8,
 }
 
+#[allow(non_camel_case_types)]
+#[repr(C)]
+pub struct uvc_menu_info {
+    name: [u8; 32],
+    value: u32,
+}
+
+#[allow(non_camel_case_types)]
+#[repr(C)]
+pub struct uvc_xu_control_mapping {
+    id: u32,
+    name: [u8; 32],
+    entity: u8,
+    selector: u8,
+    size: u16,
+    offset: u16,
+    v4l2_type: u32,
+    data_type: u32,
+    uvc_menu_info: u32,
+    uvc_menu_count: u32,
+}
+
 const UVCIOC_CTRL_MAGIC: u8 = b'u'; // Defined in linux/uvcvideo.h
 const UVCIOC_CTRL_QUERY_MESSAGE: u8 = 0x21; // Defined in linux/uvcvideo.h
 ioctl_readwrite_buf!(

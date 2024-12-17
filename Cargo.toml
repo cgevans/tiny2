@@ -17,8 +17,7 @@ categories = ["hardware-support"]
 
 [dependencies]
 iced = "0.10"
-rusb = "0.9"
-nix = "0"
+nix = { version = "0.29", features = ["ioctl"] }
 errno = "0"
 hex = "0"
 glob = "0"
