@@ -1,9 +1,15 @@
-use iced::widget::{button, column, row, slider, text, text_input, toggler};
-use iced::{executor, window, Alignment, Length};
-use iced::{Application, Command, Element, Settings, Theme};
+use iced::widget::{button, column, container, mouse_area, row, text, text_input, toggler};
+use iced::{event, time, window, Alignment, Border, Element, Length, Subscription, Task, Theme};
 use std::time::Duration;
 
-use tiny2::{AIMode, Camera, CtrlRange, ExposureMode, FOVMode, OBSBotWebCam};
+use tiny2::{AIMode, Camera, ExposureMode, FOVMode, OBSBotWebCam};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PtzAction {
+    Pan(i32),
+    Tilt(i32),
+    Zoom(i32),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum Message {
@@ -18,43 +24,20 @@ enum Message {
     HexDump,
     HexDump02,
     DismissError,
-    // PTZ messages
-    SetPan(i32),
-    SetTilt(i32),
-    SetZoom(i32),
-    PanRelative(i32),
-    TiltRelative(i32),
-    ZoomRelative(i32),
+    // PTZ press-and-hold
+    StartMove(PtzAction),
+    StopMove,
+    Tick,
 }
 
-/// Cached range + current value for a PTZ axis.
+/// Step size for a PTZ axis, or None if the control is unavailable.
 struct PtzAxis {
-    value: i32,
-    range: Option<CtrlRange>,
+    step: Option<i32>,
 }
 
 impl PtzAxis {
     fn unavailable() -> Self {
-        PtzAxis {
-            value: 0,
-            range: None,
-        }
-    }
-
-    fn new(value: i32, range: CtrlRange) -> Self {
-        PtzAxis {
-            value,
-            range: Some(range),
-        }
-    }
-
-    /// Suggested step for arrow-button increments (use control step, or 1/20 of range).
-    fn step(&self) -> i32 {
-        match &self.range {
-            Some(r) if r.step > 0 => r.step,
-            Some(r) => ((r.maximum - r.minimum) / 20).max(1),
-            None => 1,
-        }
+        PtzAxis { step: None }
     }
 }
 
@@ -68,377 +51,349 @@ struct MainPanel {
     pan: PtzAxis,
     tilt: PtzAxis,
     zoom: PtzAxis,
+    held_action: Option<PtzAction>,
 }
 
-impl Application for MainPanel {
-    fn view(&self) -> Element<Message> {
-        let mut c = column![
-            button("None").on_press(Message::ChangeTracking(AIMode::NoTracking)),
-            button("Normal Tracking").on_press(Message::ChangeTracking(AIMode::NormalTracking)),
-            row![
-                button("Upper Body")
-                    .on_press(Message::ChangeTracking(AIMode::UpperBody))
-                    .width(Length::Fill),
-                button("Close-up")
-                    .on_press(Message::ChangeTracking(AIMode::CloseUp))
-                    .width(Length::Fill),
-            ]
-            .spacing(10),
-            row![
-                button("Headless")
-                    .on_press(Message::ChangeTracking(AIMode::Headless))
-                    .width(Length::Fill),
-                button("Lower Body")
-                    .on_press(Message::ChangeTracking(AIMode::LowerBody))
-                    .width(Length::Fill),
-            ]
-            .spacing(10),
-            row![
-                button("Desk")
-                    .on_press(Message::ChangeTracking(AIMode::DeskMode))
-                    .width(Length::Fill),
-                button("Whiteboard")
-                    .on_press(Message::ChangeTracking(AIMode::Whiteboard))
-                    .width(Length::Fill),
-            ]
-            .spacing(10),
-            row![
-                button("Hand")
-                    .on_press(Message::ChangeTracking(AIMode::Hand))
-                    .width(Length::Fill),
-                button("Group")
-                    .on_press(Message::ChangeTracking(AIMode::Group))
-                    .width(Length::Fill),
-            ]
-            .spacing(10),
-            row![
-                button("Manual")
-                    .on_press(Message::ChangeExposure(ExposureMode::Manual))
-                    .width(Length::Fill),
-                button("Face")
-                    .on_press(Message::ChangeExposure(ExposureMode::Face))
-                    .width(Length::Fill),
-                button("Global")
-                    .on_press(Message::ChangeExposure(ExposureMode::Global))
-                    .width(Length::Fill),
-            ]
-            .spacing(10),
-            row![
-                button("FOV 86°")
-                    .on_press(Message::ChangeFOV(FOVMode::Wide))
-                    .width(Length::Fill),
-                button("FOV 78°")
-                    .on_press(Message::ChangeFOV(FOVMode::Normal))
-                    .width(Length::Fill),
-                button("FOV 65°")
-                    .on_press(Message::ChangeFOV(FOVMode::Narrow))
-                    .width(Length::Fill),
-            ]
-            .spacing(10),
-            toggler(Some("HDR".to_string()), self.hdr_on, Message::ChangeHDR),
-        ]
-        .width(Length::Fill)
-        .align_items(Alignment::Center)
-        .spacing(10)
-        .padding(10);
-
-        // Pan/Tilt/Zoom controls
-        if let Some(ref range) = self.pan.range {
-            let step = self.pan.step();
-            c = c.push(
-                row![
-                    text("Pan").width(Length::Fixed(40.0)),
-                    button("<").on_press(Message::PanRelative(-step)),
-                    slider(
-                        range.minimum..=range.maximum,
-                        self.pan.value,
-                        Message::SetPan
-                    )
-                    .step(range.step.max(1))
-                    .width(Length::Fill),
-                    button(">").on_press(Message::PanRelative(step)),
-                    text(format!("{}", self.pan.value)).width(Length::Fixed(60.0)),
-                ]
-                .spacing(5)
-                .align_items(Alignment::Center),
-            );
-        }
-
-        if let Some(ref range) = self.tilt.range {
-            let step = self.tilt.step();
-            c = c.push(
-                row![
-                    text("Tilt").width(Length::Fixed(40.0)),
-                    button("v").on_press(Message::TiltRelative(-step)),
-                    slider(
-                        range.minimum..=range.maximum,
-                        self.tilt.value,
-                        Message::SetTilt
-                    )
-                    .step(range.step.max(1))
-                    .width(Length::Fill),
-                    button("^").on_press(Message::TiltRelative(step)),
-                    text(format!("{}", self.tilt.value)).width(Length::Fixed(60.0)),
-                ]
-                .spacing(5)
-                .align_items(Alignment::Center),
-            );
-        }
-
-        if let Some(ref range) = self.zoom.range {
-            let step = self.zoom.step();
-            c = c.push(
-                row![
-                    text("Zoom").width(Length::Fixed(40.0)),
-                    button("-").on_press(Message::ZoomRelative(-step)),
-                    slider(
-                        range.minimum..=range.maximum,
-                        self.zoom.value,
-                        Message::SetZoom
-                    )
-                    .step(range.step.max(1))
-                    .width(Length::Fill),
-                    button("+").on_press(Message::ZoomRelative(step)),
-                    text(format!("{}", self.zoom.value)).width(Length::Fixed(60.0)),
-                ]
-                .spacing(5)
-                .align_items(Alignment::Center),
-            );
-        }
-
-        if self.pan.range.is_none() && self.tilt.range.is_none() && self.zoom.range.is_none() {
-            c = c.push(text("PTZ controls not available for this device"));
-        }
-
-        c = c.push(
-            column![
-                text_input("0x06 hex string", &self.text_input)
-                    .on_input(Message::TextInput)
-                    .on_submit(Message::SendCommand),
-                text_input("0x02 hex string", &self.text_input_02)
-                    .on_input(Message::TextInput02)
-                    .on_submit(Message::SendCommand02),
-                button("Dump 0x06")
-                    .on_press(Message::HexDump)
-                    .width(Length::Fill),
-                button("Dump 0x02")
-                    .on_press(Message::HexDump02)
-                    .width(Length::Fill),
-                text(self.tracking),
-            ]
-            .spacing(10),
-        );
-
-        c.into()
-    }
-
-    fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
-            Message::ChangeTracking(tracking_type) => {
-                self.tracking = tracking_type;
-                if let Err(e) = self.camera.set_ai_mode(tracking_type) {
-                    self.error_message = Some(format!("Failed to change tracking: {}", e));
-                }
-                Command::none()
-            }
-            Message::ChangeHDR(new_mode) => {
-                self.hdr_on = new_mode;
-                if let Err(e) = self.camera.set_hdr_mode(new_mode) {
-                    self.error_message = Some(format!("Failed to change HDR mode: {}", e));
-                }
-                Command::none()
-            }
-            Message::ChangeExposure(mode) => {
-                if let Err(e) = self.camera.set_exposure_mode(mode) {
-                    self.error_message = Some(format!("Failed to change exposure: {}", e));
-                }
-                Command::none()
-            }
-            Message::ChangeFOV(value) => {
-                if let Err(e) = self.camera.set_fov(value) {
-                    self.error_message = Some(format!("Failed to change FOV: {}", e));
-                }
-                Command::none()
-            }
-            Message::TextInput(s) => {
-                self.text_input = s;
-                Command::none()
-            }
-            Message::TextInput02(s) => {
-                self.text_input_02 = s;
-                Command::none()
-            }
-            Message::SendCommand => {
-                match hex::decode(&self.text_input) {
-                    Ok(c) => {
-                        if let Err(e) = self.camera.send_cmd(0x2, 0x6, &c) {
-                            self.error_message = Some(format!("Failed to send command: {}", e));
-                        }
-                    }
-                    Err(e) => {
-                        self.error_message = Some(format!("Invalid hex string: {}", e));
-                    }
-                }
-                Command::none()
-            }
-            Message::SendCommand02 => {
-                match hex::decode(&self.text_input_02) {
-                    Ok(c) => {
-                        if let Err(e) = self.camera.send_cmd(0x2, 0x2, &c) {
-                            self.error_message = Some(format!("Failed to send command: {}", e));
-                        }
-                    }
-                    Err(e) => {
-                        self.error_message = Some(format!("Invalid hex string: {}", e));
-                    }
-                }
-                Command::none()
-            }
-            Message::HexDump => {
-                if let Err(e) = self.camera.dump() {
-                    self.error_message = Some(format!("Failed to dump: {}", e));
-                }
-                Command::none()
-            }
-            Message::HexDump02 => {
-                if let Err(e) = self.camera.dump_02() {
-                    self.error_message = Some(format!("Failed to dump: {}", e));
-                }
-                Command::none()
-            }
-            Message::DismissError => {
-                self.error_message = None;
-                Command::none()
-            }
-            Message::SetPan(value) => {
-                self.pan.value = value;
-                if let Err(e) = self.camera.set_pan(value) {
-                    self.error_message = Some(format!("Failed to set pan: {}", e));
-                }
-                Command::none()
-            }
-            Message::SetTilt(value) => {
-                self.tilt.value = value;
-                if let Err(e) = self.camera.set_tilt(value) {
-                    self.error_message = Some(format!("Failed to set tilt: {}", e));
-                }
-                Command::none()
-            }
-            Message::SetZoom(value) => {
-                self.zoom.value = value;
-                if let Err(e) = self.camera.set_zoom(value) {
-                    self.error_message = Some(format!("Failed to set zoom: {}", e));
-                }
-                Command::none()
-            }
-            Message::PanRelative(delta) => {
-                if let Some(ref range) = self.pan.range {
-                    let new_val = (self.pan.value + delta).clamp(range.minimum, range.maximum);
-                    self.pan.value = new_val;
-                    if let Err(e) = self.camera.set_pan(new_val) {
-                        self.error_message = Some(format!("Failed to set pan: {}", e));
-                    }
-                }
-                Command::none()
-            }
-            Message::TiltRelative(delta) => {
-                if let Some(ref range) = self.tilt.range {
-                    let new_val = (self.tilt.value + delta).clamp(range.minimum, range.maximum);
-                    self.tilt.value = new_val;
-                    if let Err(e) = self.camera.set_tilt(new_val) {
-                        self.error_message = Some(format!("Failed to set tilt: {}", e));
-                    }
-                }
-                Command::none()
-            }
-            Message::ZoomRelative(delta) => {
-                if let Some(ref range) = self.zoom.range {
-                    let new_val = (self.zoom.value + delta).clamp(range.minimum, range.maximum);
-                    self.zoom.value = new_val;
-                    if let Err(e) = self.camera.set_zoom(new_val) {
-                        self.error_message = Some(format!("Failed to set zoom: {}", e));
-                    }
-                }
-                Command::none()
-            }
+impl MainPanel {
+    fn execute_ptz(&mut self, action: PtzAction) {
+        let result = match action {
+            PtzAction::Pan(d) => self.camera.get_pan().and_then(|v| self.camera.set_pan(v + d)),
+            PtzAction::Tilt(d) => self.camera.get_tilt().and_then(|v| self.camera.set_tilt(v + d)),
+            PtzAction::Zoom(d) => self.camera.get_zoom().and_then(|v| self.camera.set_zoom(v + d)),
+        };
+        if let Err(e) = result {
+            self.error_message = Some(format!("PTZ error: {}", e));
         }
     }
+}
 
-    type Executor = executor::Default;
+fn boot() -> (MainPanel, Task<Message>) {
+    let camera = Camera::wait_for("OBSBOT Tiny 2", Duration::from_secs(1));
 
-    type Message = Message;
+    let status = match camera.get_status() {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                MainPanel {
+                    camera,
+                    tracking: AIMode::NoTracking,
+                    hdr_on: false,
+                    text_input: String::new(),
+                    text_input_02: String::new(),
+                    error_message: Some(format!("Failed to get camera status: {}", e)),
+                    pan: PtzAxis::unavailable(),
+                    tilt: PtzAxis::unavailable(),
+                    zoom: PtzAxis::unavailable(),
+                    held_action: None,
+                },
+                Task::none(),
+            )
+        }
+    };
 
-    type Theme = Theme;
+    let step_from_range = |r: tiny2::CtrlRange| -> i32 {
+        if r.step > 0 {
+            r.step
+        } else {
+            ((r.maximum - r.minimum) / 20).max(1)
+        }
+    };
+    let pan = PtzAxis {
+        step: camera.query_pan_range().ok().map(&step_from_range),
+    };
+    let tilt = PtzAxis {
+        step: camera.query_tilt_range().ok().map(&step_from_range),
+    };
+    let zoom = PtzAxis {
+        step: camera.query_zoom_range().ok().map(&step_from_range),
+    };
 
-    type Flags = ();
+    (
+        MainPanel {
+            camera,
+            tracking: status.ai_mode,
+            hdr_on: status.hdr_on,
+            text_input: String::new(),
+            text_input_02: String::new(),
+            error_message: None,
+            pan,
+            tilt,
+            zoom,
+            held_action: None,
+        },
+        Task::none(),
+    )
+}
 
-    fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        let camera = Camera::wait_for("OBSBOT Tiny 2", Duration::from_secs(1));
-
-        let status = match camera.get_status() {
-            Ok(s) => s,
+fn update(state: &mut MainPanel, message: Message) -> Task<Message> {
+    match message {
+        Message::ChangeTracking(tracking_type) => {
+            state.tracking = tracking_type;
+            if let Err(e) = state.camera.set_ai_mode(tracking_type) {
+                state.error_message = Some(format!("Failed to change tracking: {}", e));
+            }
+        }
+        Message::ChangeHDR(new_mode) => {
+            state.hdr_on = new_mode;
+            if let Err(e) = state.camera.set_hdr_mode(new_mode) {
+                state.error_message = Some(format!("Failed to change HDR mode: {}", e));
+            }
+        }
+        Message::ChangeExposure(mode) => {
+            if let Err(e) = state.camera.set_exposure_mode(mode) {
+                state.error_message = Some(format!("Failed to change exposure: {}", e));
+            }
+        }
+        Message::ChangeFOV(value) => {
+            if let Err(e) = state.camera.set_fov(value) {
+                state.error_message = Some(format!("Failed to change FOV: {}", e));
+            }
+        }
+        Message::TextInput(s) => {
+            state.text_input = s;
+        }
+        Message::TextInput02(s) => {
+            state.text_input_02 = s;
+        }
+        Message::SendCommand => match hex::decode(&state.text_input) {
+            Ok(c) => {
+                if let Err(e) = state.camera.send_cmd(0x2, 0x6, &c) {
+                    state.error_message = Some(format!("Failed to send command: {}", e));
+                }
+            }
             Err(e) => {
-                return (
-                    MainPanel {
-                        camera,
-                        tracking: AIMode::NoTracking,
-                        hdr_on: false,
-                        text_input: String::new(),
-                        text_input_02: String::new(),
-                        error_message: Some(format!("Failed to get camera status: {}", e)),
-                        pan: PtzAxis::unavailable(),
-                        tilt: PtzAxis::unavailable(),
-                        zoom: PtzAxis::unavailable(),
-                    },
-                    Command::none(),
-                )
+                state.error_message = Some(format!("Invalid hex string: {}", e));
             }
+        },
+        Message::SendCommand02 => match hex::decode(&state.text_input_02) {
+            Ok(c) => {
+                if let Err(e) = state.camera.send_cmd(0x2, 0x2, &c) {
+                    state.error_message = Some(format!("Failed to send command: {}", e));
+                }
+            }
+            Err(e) => {
+                state.error_message = Some(format!("Invalid hex string: {}", e));
+            }
+        },
+        Message::HexDump => {
+            if let Err(e) = state.camera.dump() {
+                state.error_message = Some(format!("Failed to dump: {}", e));
+            }
+        }
+        Message::HexDump02 => {
+            if let Err(e) = state.camera.dump_02() {
+                state.error_message = Some(format!("Failed to dump: {}", e));
+            }
+        }
+        Message::DismissError => {
+            state.error_message = None;
+        }
+        Message::StartMove(action) => {
+            state.held_action = Some(action);
+            state.execute_ptz(action);
+        }
+        Message::StopMove => {
+            state.held_action = None;
+        }
+        Message::Tick => {
+            if let Some(action) = state.held_action {
+                state.execute_ptz(action);
+            }
+        }
+    }
+    Task::none()
+}
+
+fn view(state: &MainPanel) -> Element<Message> {
+    let mut c = column![
+        button("None").on_press(Message::ChangeTracking(AIMode::NoTracking)),
+        button("Normal Tracking").on_press(Message::ChangeTracking(AIMode::NormalTracking)),
+        row![
+            button("Upper Body")
+                .on_press(Message::ChangeTracking(AIMode::UpperBody))
+                .width(Length::Fill),
+            button("Close-up")
+                .on_press(Message::ChangeTracking(AIMode::CloseUp))
+                .width(Length::Fill),
+        ]
+        .spacing(10),
+        row![
+            button("Headless")
+                .on_press(Message::ChangeTracking(AIMode::Headless))
+                .width(Length::Fill),
+            button("Lower Body")
+                .on_press(Message::ChangeTracking(AIMode::LowerBody))
+                .width(Length::Fill),
+        ]
+        .spacing(10),
+        row![
+            button("Desk")
+                .on_press(Message::ChangeTracking(AIMode::DeskMode))
+                .width(Length::Fill),
+            button("Whiteboard")
+                .on_press(Message::ChangeTracking(AIMode::Whiteboard))
+                .width(Length::Fill),
+        ]
+        .spacing(10),
+        row![
+            button("Hand")
+                .on_press(Message::ChangeTracking(AIMode::Hand))
+                .width(Length::Fill),
+            button("Group")
+                .on_press(Message::ChangeTracking(AIMode::Group))
+                .width(Length::Fill),
+        ]
+        .spacing(10),
+        row![
+            button("Manual")
+                .on_press(Message::ChangeExposure(ExposureMode::Manual))
+                .width(Length::Fill),
+            button("Face")
+                .on_press(Message::ChangeExposure(ExposureMode::Face))
+                .width(Length::Fill),
+            button("Global")
+                .on_press(Message::ChangeExposure(ExposureMode::Global))
+                .width(Length::Fill),
+        ]
+        .spacing(10),
+        row![
+            button("FOV 86°")
+                .on_press(Message::ChangeFOV(FOVMode::Wide))
+                .width(Length::Fill),
+            button("FOV 78°")
+                .on_press(Message::ChangeFOV(FOVMode::Normal))
+                .width(Length::Fill),
+            button("FOV 65°")
+                .on_press(Message::ChangeFOV(FOVMode::Narrow))
+                .width(Length::Fill),
+        ]
+        .spacing(10),
+        toggler(state.hdr_on)
+            .label("HDR")
+            .on_toggle(Message::ChangeHDR),
+    ]
+    .width(Length::Fill)
+    .align_x(Alignment::Center)
+    .spacing(10)
+    .padding(10);
+
+    // Pan/Tilt/Zoom press-and-hold controls
+    if state.pan.step.is_some() || state.tilt.step.is_some() || state.zoom.step.is_some() {
+        let ptz_btn = |label: &'static str| {
+            container(text(label).align_x(Alignment::Center))
+                .padding([4, 12])
+                .style(|theme: &Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style {
+                        background: Some(palette.primary.weak.color.into()),
+                        text_color: Some(palette.primary.weak.text),
+                        border: Border {
+                            radius: 4.0.into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }
+                })
         };
 
-        // Query PTZ control ranges and current values.
-        // These are standard V4L2 controls and may not be supported by all devices.
-        let pan = match (camera.query_pan_range(), camera.get_pan()) {
-            (Ok(range), Ok(value)) => PtzAxis::new(value, range),
-            _ => PtzAxis::unavailable(),
-        };
-        let tilt = match (camera.query_tilt_range(), camera.get_tilt()) {
-            (Ok(range), Ok(value)) => PtzAxis::new(value, range),
-            _ => PtzAxis::unavailable(),
-        };
-        let zoom = match (camera.query_zoom_range(), camera.get_zoom()) {
-            (Ok(range), Ok(value)) => PtzAxis::new(value, range),
-            _ => PtzAxis::unavailable(),
-        };
+        let mut ptz_row = row![].spacing(10).align_y(Alignment::Center);
 
-        (
-            MainPanel {
-                camera,
-                tracking: status.ai_mode,
-                hdr_on: status.hdr_on,
-                text_input: String::new(),
-                text_input_02: String::new(),
-                error_message: None,
-                pan,
-                tilt,
-                zoom,
-            },
-            Command::none(),
-        )
+        if let Some(step) = state.pan.step {
+            ptz_row = ptz_row.push(
+                row![
+                    mouse_area(ptz_btn("<"))
+                        .on_press(Message::StartMove(PtzAction::Pan(-step)))
+                        .on_release(Message::StopMove),
+                    mouse_area(ptz_btn(">"))
+                        .on_press(Message::StartMove(PtzAction::Pan(step)))
+                        .on_release(Message::StopMove),
+                ]
+                .spacing(5),
+            );
+        }
+
+        if let Some(step) = state.tilt.step {
+            ptz_row = ptz_row.push(
+                row![
+                    mouse_area(ptz_btn("v"))
+                        .on_press(Message::StartMove(PtzAction::Tilt(-step)))
+                        .on_release(Message::StopMove),
+                    mouse_area(ptz_btn("^"))
+                        .on_press(Message::StartMove(PtzAction::Tilt(step)))
+                        .on_release(Message::StopMove),
+                ]
+                .spacing(5),
+            );
+        }
+
+        if let Some(step) = state.zoom.step {
+            ptz_row = ptz_row.push(
+                row![
+                    mouse_area(ptz_btn("-"))
+                        .on_press(Message::StartMove(PtzAction::Zoom(-step)))
+                        .on_release(Message::StopMove),
+                    mouse_area(ptz_btn("+"))
+                        .on_press(Message::StartMove(PtzAction::Zoom(step)))
+                        .on_release(Message::StopMove),
+                ]
+                .spacing(5),
+            );
+        }
+
+        c = c.push(ptz_row);
+    } else {
+        c = c.push(text("PTZ controls not available for this device"));
     }
 
-    fn title(&self) -> String {
-        "ObsBot Tiny 2 Control Panel".to_string()
+    c = c.push(
+        column![
+            text_input("0x06 hex string", &state.text_input)
+                .on_input(Message::TextInput)
+                .on_submit(Message::SendCommand),
+            text_input("0x02 hex string", &state.text_input_02)
+                .on_input(Message::TextInput02)
+                .on_submit(Message::SendCommand02),
+            button("Dump 0x06")
+                .on_press(Message::HexDump)
+                .width(Length::Fill),
+            button("Dump 0x02")
+                .on_press(Message::HexDump02)
+                .width(Length::Fill),
+            text(state.tracking.to_string()),
+        ]
+        .spacing(10),
+    );
+
+    c.into()
+}
+
+fn stop_on_mouse_release(
+    event: iced::Event,
+    _status: event::Status,
+    _id: window::Id,
+) -> Option<Message> {
+    if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) =
+        event
+    {
+        Some(Message::StopMove)
+    } else {
+        None
     }
+}
+
+fn subscription(state: &MainPanel) -> Subscription<Message> {
+    let tick = if state.held_action.is_some() {
+        time::every(Duration::from_millis(150)).map(|_| Message::Tick)
+    } else {
+        Subscription::none()
+    };
+    Subscription::batch(vec![tick, event::listen_with(stop_on_mouse_release)])
 }
 
 fn main() -> iced::Result {
-    MainPanel::run(Settings {
-        window: window::Settings {
-            size: (400, 700),
-            resizable: false,
-            decorations: true,
-            ..Default::default()
-        },
-        ..Default::default()
-    })
+    iced::application(boot, update, view)
+        .subscription(subscription)
+        .window_size((400.0, 700.0))
+        .resizable(false)
+        .run()
 }
