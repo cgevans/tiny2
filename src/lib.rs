@@ -3,7 +3,7 @@
 mod usbio;
 
 use errno::Errno;
-use std::{fmt::Display, io};
+use std::{fmt::Display, io, thread, time::Duration};
 use thiserror::Error;
 use usbio::{UvcUsbIo, V4l2CtrlRange};
 
@@ -246,6 +246,28 @@ impl Camera {
         Ok(Self {
             handle: usbio::open_camera(hint)?,
         })
+    }
+
+    /// Try to open the camera, retrying every `interval` until it appears.
+    /// Prints a message to stderr on the first failure, then silently retries.
+    pub fn wait_for(hint: &str, interval: Duration) -> Self {
+        let mut warned = false;
+        loop {
+            match Self::new(hint) {
+                Ok(cam) => {
+                    if warned {
+                        eprintln!("Camera \"{}\" found.", hint);
+                    }
+                    return cam;
+                }
+                Err(_) if !warned => {
+                    eprintln!("Camera \"{}\" not found, waiting for it to appear...", hint);
+                    warned = true;
+                }
+                Err(_) => {}
+            }
+            thread::sleep(interval);
+        }
     }
 
     pub fn info(&self) -> Result<(), Errno> {

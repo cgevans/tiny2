@@ -1,5 +1,6 @@
 use rosc::{OscMessage, OscType};
 use std::net::UdpSocket;
+use std::time::Duration;
 use tiny2::{Camera, Error, OBSBotWebCam};
 
 struct OBSBotOSCServer {
@@ -104,7 +105,7 @@ fn main() {
 
     let server = OBSBotOSCServer {
         addr: args.address,
-        cameras: vec![Camera::new("OBSBOT").unwrap()],
+        cameras: vec![Camera::wait_for("OBSBOT", Duration::from_secs(1))],
     };
 
     if let Err(err) = server.run_server() {

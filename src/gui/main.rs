@@ -1,6 +1,7 @@
 use iced::widget::{button, column, row, slider, text, text_input, toggler};
 use iced::{executor, window, Alignment, Length};
 use iced::{Application, Command, Element, Settings, Theme};
+use std::time::Duration;
 
 use tiny2::{AIMode, Camera, CtrlRange, ExposureMode, FOVMode, OBSBotWebCam};
 
@@ -372,26 +373,7 @@ impl Application for MainPanel {
     type Flags = ();
 
     fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        let camera = match Camera::new("OBSBOT Tiny 2") {
-            Ok(cam) => cam,
-            Err(e) => {
-                return (
-                    MainPanel {
-                        camera: Camera::new("")
-                            .unwrap_or_else(|_| panic!("Failed to create dummy camera")),
-                        tracking: AIMode::NoTracking,
-                        hdr_on: false,
-                        text_input: String::new(),
-                        text_input_02: String::new(),
-                        error_message: Some(format!("Failed to connect to camera: {}", e)),
-                        pan: PtzAxis::unavailable(),
-                        tilt: PtzAxis::unavailable(),
-                        zoom: PtzAxis::unavailable(),
-                    },
-                    Command::none(),
-                )
-            }
-        };
+        let camera = Camera::wait_for("OBSBOT Tiny 2", Duration::from_secs(1));
 
         let status = match camera.get_status() {
             Ok(s) => s,
