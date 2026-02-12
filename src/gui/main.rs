@@ -205,43 +205,39 @@ fn update(state: &mut MainPanel, message: Message) -> Task<Message> {
 }
 
 fn view(state: &MainPanel) -> Element<Message> {
+    let track_btn = |label: &'static str, mode: AIMode| {
+        let style = if state.tracking == mode {
+            button::primary
+        } else {
+            button::secondary
+        };
+        button(text(label).align_x(Alignment::Center))
+            .on_press(Message::ChangeTracking(mode))
+            .style(style)
+            .width(Length::Fill)
+    };
+
     let mut c = column![
-        button("None").on_press(Message::ChangeTracking(AIMode::NoTracking)),
-        button("Normal Tracking").on_press(Message::ChangeTracking(AIMode::NormalTracking)),
+        track_btn("None", AIMode::NoTracking),
+        track_btn("Normal Tracking", AIMode::NormalTracking),
         row![
-            button("Upper Body")
-                .on_press(Message::ChangeTracking(AIMode::UpperBody))
-                .width(Length::Fill),
-            button("Close-up")
-                .on_press(Message::ChangeTracking(AIMode::CloseUp))
-                .width(Length::Fill),
+            track_btn("Upper Body", AIMode::UpperBody),
+            track_btn("Close-up", AIMode::CloseUp),
         ]
         .spacing(10),
         row![
-            button("Headless")
-                .on_press(Message::ChangeTracking(AIMode::Headless))
-                .width(Length::Fill),
-            button("Lower Body")
-                .on_press(Message::ChangeTracking(AIMode::LowerBody))
-                .width(Length::Fill),
+            track_btn("Headless", AIMode::Headless),
+            track_btn("Lower Body", AIMode::LowerBody),
         ]
         .spacing(10),
         row![
-            button("Desk")
-                .on_press(Message::ChangeTracking(AIMode::DeskMode))
-                .width(Length::Fill),
-            button("Whiteboard")
-                .on_press(Message::ChangeTracking(AIMode::Whiteboard))
-                .width(Length::Fill),
+            track_btn("Desk", AIMode::DeskMode),
+            track_btn("Whiteboard", AIMode::Whiteboard),
         ]
         .spacing(10),
         row![
-            button("Hand")
-                .on_press(Message::ChangeTracking(AIMode::Hand))
-                .width(Length::Fill),
-            button("Group")
-                .on_press(Message::ChangeTracking(AIMode::Group))
-                .width(Length::Fill),
+            track_btn("Hand", AIMode::Hand),
+            track_btn("Group", AIMode::Group),
         ]
         .spacing(10),
         row![
@@ -359,7 +355,6 @@ fn view(state: &MainPanel) -> Element<Message> {
             button("Dump 0x02")
                 .on_press(Message::HexDump02)
                 .width(Length::Fill),
-            text(state.tracking.to_string()),
         ]
         .spacing(10),
     );
