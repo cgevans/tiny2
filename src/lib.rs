@@ -3,12 +3,18 @@
 mod usbio;
 
 use errno::Errno;
-use usbio::UvcUsbIo;
 use std::{fmt::Display, io};
 use thiserror::Error;
+use usbio::{UvcUsbIo, V4l2CtrlRange};
 
-const AUTO_EXP_CMD: [u8; 18] = [0xaa, 0x25, 0x16, 0x00, 0x0c, 0x00, 0x58, 0x91, 0x0a, 0x02, 0x82, 0x29, 0x05, 0x00, 0xb2, 0xaf, 0x02, 0x04];
-const MANUAL_EXP_CMD: [u8; 18] = [0xaa, 0x25, 0x15, 0x00, 0x0c, 0x00, 0xa8, 0x9e, 0x0a, 0x02, 0x82, 0x29, 0x05, 0x00, 0xf9, 0x27, 0x01, 0x32];
+const AUTO_EXP_CMD: [u8; 18] = [
+    0xaa, 0x25, 0x16, 0x00, 0x0c, 0x00, 0x58, 0x91, 0x0a, 0x02, 0x82, 0x29, 0x05, 0x00, 0xb2, 0xaf,
+    0x02, 0x04,
+];
+const MANUAL_EXP_CMD: [u8; 18] = [
+    0xaa, 0x25, 0x15, 0x00, 0x0c, 0x00, 0xa8, 0x9e, 0x0a, 0x02, 0x82, 0x29, 0x05, 0x00, 0xf9, 0x27,
+    0x01, 0x32,
+];
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -31,7 +37,7 @@ pub struct Camera {
 
 pub struct CameraStatus {
     pub ai_mode: AIMode,
-    pub hdr_on: bool
+    pub hdr_on: bool,
 }
 
 impl CameraStatus {
@@ -77,7 +83,7 @@ pub enum AIMode {
 pub enum ExposureMode {
     Manual,
     Global,
-    Face
+    Face,
 }
 
 impl Display for AIMode {
@@ -139,14 +145,35 @@ impl TryFrom<i32> for TrackingMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FOVMode {
+    Wide,   // 86°
+    Normal, // 78°
+    Narrow, // 65°
+}
+
+impl FOVMode {
+    fn to_cmd_value(&self) -> u8 {
+        match self {
+            FOVMode::Wide => 1,
+            FOVMode::Normal => 2,
+            FOVMode::Narrow => 3,
+        }
+    }
+}
+
 pub trait OBSBotWebCam {
     fn set_ai_mode(&self, mode: AIMode) -> Result<(), Error>;
     fn get_ai_mode(&self) -> Result<AIMode, Error>;
     fn set_hdr_mode(&self, mode: bool) -> Result<(), Error>;
     fn set_exposure_mode(&self, mode: ExposureMode) -> Result<(), Error>;
+    fn set_fov(&self, mode: FOVMode) -> Result<(), Error>;
 }
 
 impl OBSBotWebCam for Camera {
+    fn set_fov(&self, mode: FOVMode) -> Result<(), Error> {
+        self.send_cmd(0x2, 0x6, &[0x04, 0x01, mode.to_cmd_value()])
+    }
     fn set_ai_mode(&self, mode: AIMode) -> Result<(), Error> {
         let cmd = match mode {
             AIMode::NoTracking => [0x16, 0x02, 0x00, 0x00],
@@ -180,8 +207,6 @@ impl OBSBotWebCam for Camera {
         Ok(())
     }
 
-
-
     fn set_hdr_mode(&self, mode: bool) -> Result<(), Error> {
         let cmd = if mode {
             [0x01, 0x01, 0x01]
@@ -196,9 +221,31 @@ impl OBSBotWebCam for Camera {
     }
 }
 
+/// Range information for a V4L2 control (min, max, step, default).
+#[derive(Debug, Clone, Copy)]
+pub struct CtrlRange {
+    pub minimum: i32,
+    pub maximum: i32,
+    pub step: i32,
+    pub default_value: i32,
+}
+
+impl From<V4l2CtrlRange> for CtrlRange {
+    fn from(r: V4l2CtrlRange) -> Self {
+        CtrlRange {
+            minimum: r.minimum,
+            maximum: r.maximum,
+            step: r.step,
+            default_value: r.default_value,
+        }
+    }
+}
+
 impl Camera {
     pub fn new(hint: &str) -> Result<Self, Error> {
-        Ok(Self { handle: usbio::open_camera(hint)? })
+        Ok(Self {
+            handle: usbio::open_camera(hint)?,
+        })
     }
 
     pub fn info(&self) -> Result<(), Errno> {
@@ -224,6 +271,95 @@ impl Camera {
         self.get_cur(0x2, 0x2, &mut data)?;
         hexdump::hexdump(&data);
         Ok(())
+    }
+
+    // ---- Standard V4L2 Pan/Tilt/Zoom controls ----
+
+    /// Get the current absolute pan value (in arc-seconds).
+    pub fn get_pan(&self) -> Result<i32, Error> {
+        self.handle
+            .get_ctrl(usbio::V4L2_CID_PAN_ABSOLUTE)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Set the absolute pan value (in arc-seconds).
+    pub fn set_pan(&self, value: i32) -> Result<(), Error> {
+        self.handle
+            .set_ctrl(usbio::V4L2_CID_PAN_ABSOLUTE, value)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Get the current absolute tilt value (in arc-seconds).
+    pub fn get_tilt(&self) -> Result<i32, Error> {
+        self.handle
+            .get_ctrl(usbio::V4L2_CID_TILT_ABSOLUTE)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Set the absolute tilt value (in arc-seconds).
+    pub fn set_tilt(&self, value: i32) -> Result<(), Error> {
+        self.handle
+            .set_ctrl(usbio::V4L2_CID_TILT_ABSOLUTE, value)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Get the current absolute zoom value.
+    pub fn get_zoom(&self) -> Result<i32, Error> {
+        self.handle
+            .get_ctrl(usbio::V4L2_CID_ZOOM_ABSOLUTE)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Set the absolute zoom value.
+    pub fn set_zoom(&self, value: i32) -> Result<(), Error> {
+        self.handle
+            .set_ctrl(usbio::V4L2_CID_ZOOM_ABSOLUTE, value)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Move pan by a relative amount.
+    pub fn pan_relative(&self, delta: i32) -> Result<(), Error> {
+        self.handle
+            .set_ctrl(usbio::V4L2_CID_PAN_RELATIVE, delta)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Move tilt by a relative amount.
+    pub fn tilt_relative(&self, delta: i32) -> Result<(), Error> {
+        self.handle
+            .set_ctrl(usbio::V4L2_CID_TILT_RELATIVE, delta)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Move zoom by a relative amount.
+    pub fn zoom_relative(&self, delta: i32) -> Result<(), Error> {
+        self.handle
+            .set_ctrl(usbio::V4L2_CID_ZOOM_RELATIVE, delta)
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Query the supported range for pan (absolute).
+    pub fn query_pan_range(&self) -> Result<CtrlRange, Error> {
+        self.handle
+            .query_ctrl(usbio::V4L2_CID_PAN_ABSOLUTE)
+            .map(|r| r.into())
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Query the supported range for tilt (absolute).
+    pub fn query_tilt_range(&self) -> Result<CtrlRange, Error> {
+        self.handle
+            .query_ctrl(usbio::V4L2_CID_TILT_ABSOLUTE)
+            .map(|r| r.into())
+            .map_err(|e| Error::USBIOError(e.0))
+    }
+
+    /// Query the supported range for zoom (absolute).
+    pub fn query_zoom_range(&self) -> Result<CtrlRange, Error> {
+        self.handle
+            .query_ctrl(usbio::V4L2_CID_ZOOM_ABSOLUTE)
+            .map(|r| r.into())
+            .map_err(|e| Error::USBIOError(e.0))
     }
 
     pub fn send_cmd(&self, unit: u8, selector: u8, cmd: &[u8]) -> Result<(), Error> {

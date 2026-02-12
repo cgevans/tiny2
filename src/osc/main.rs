@@ -37,24 +37,69 @@ impl OBSBotOSCServer {
                 };
                 self.cameras[camera].set_ai_mode(mode.try_into()?)
             }
+            // PTZ absolute: /pan <camera> <value>, /tilt <camera> <value>, /zoom <camera> <value>
+            "/pan" => {
+                let camera = Self::get_camera_index(&msg, 0);
+                let value = Self::get_int_arg(&msg, 1);
+                self.cameras[camera].set_pan(value)
+            }
+            "/tilt" => {
+                let camera = Self::get_camera_index(&msg, 0);
+                let value = Self::get_int_arg(&msg, 1);
+                self.cameras[camera].set_tilt(value)
+            }
+            "/zoom" => {
+                let camera = Self::get_camera_index(&msg, 0);
+                let value = Self::get_int_arg(&msg, 1);
+                self.cameras[camera].set_zoom(value)
+            }
+            // PTZ relative: /pan/relative <camera> <delta>, etc.
+            "/pan/relative" => {
+                let camera = Self::get_camera_index(&msg, 0);
+                let delta = Self::get_int_arg(&msg, 1);
+                self.cameras[camera].pan_relative(delta)
+            }
+            "/tilt/relative" => {
+                let camera = Self::get_camera_index(&msg, 0);
+                let delta = Self::get_int_arg(&msg, 1);
+                self.cameras[camera].tilt_relative(delta)
+            }
+            "/zoom/relative" => {
+                let camera = Self::get_camera_index(&msg, 0);
+                let delta = Self::get_int_arg(&msg, 1);
+                self.cameras[camera].zoom_relative(delta)
+            }
             _ => {
                 println!("{:?}", msg);
-                Ok(())},
+                Ok(())
+            }
+        }
+    }
+
+    fn get_camera_index(msg: &OscMessage, arg_idx: usize) -> usize {
+        match msg.args.get(arg_idx) {
+            Some(OscType::Int(x)) => *x as usize,
+            _ => 0,
+        }
+    }
+
+    fn get_int_arg(msg: &OscMessage, arg_idx: usize) -> i32 {
+        match msg.args.get(arg_idx) {
+            Some(OscType::Int(x)) => *x,
+            _ => 0,
         }
     }
 }
-
 
 use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
 struct Args {
     #[arg(short, long, default_value = "127.0.0.1:9000")]
-    address: String
+    address: String,
 }
 
 fn main() {
-
     let args = Args::parse();
 
     let server = OBSBotOSCServer {

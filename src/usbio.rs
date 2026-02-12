@@ -3,7 +3,7 @@
 use enum_dispatch::enum_dispatch;
 use errno::Errno;
 use nix::errno::errno;
-use nix::{ioctl_read_buf, ioctl_readwrite_buf};
+use nix::{ioctl_read_buf, ioctl_readwrite, ioctl_readwrite_buf};
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 //use std::fs::OpenOptions;
@@ -16,6 +16,18 @@ use std::str;
 pub trait UvcUsbIo {
     fn info(&self) -> Result<(), Errno>;
     fn io(&self, unit: u8, selector: u8, query: u8, data: &mut [u8]) -> Result<(), Errno>;
+    fn get_ctrl(&self, id: u32) -> Result<i32, Errno>;
+    fn set_ctrl(&self, id: u32, value: i32) -> Result<(), Errno>;
+    fn query_ctrl(&self, id: u32) -> Result<V4l2CtrlRange, Errno>;
+}
+
+/// Range information for a V4L2 control, returned by VIDIOC_QUERYCTRL.
+#[derive(Debug, Clone, Copy)]
+pub struct V4l2CtrlRange {
+    pub minimum: i32,
+    pub maximum: i32,
+    pub step: i32,
+    pub default_value: i32,
 }
 
 #[derive(Debug)]
@@ -63,10 +75,58 @@ impl UvcUsbIo for CameraHandle {
             }
         }
     }
+
+    fn get_ctrl(&self, id: u32) -> Result<i32, Errno> {
+        let dev = &self.0;
+        let mut ctrl = v4l2_control { id, value: 0 };
+
+        unsafe {
+            match vidioc_g_ctrl(dev.as_raw_fd(), &mut ctrl) {
+                Ok(_) => Ok(ctrl.value),
+                _ => Err(errno::Errno(errno())),
+            }
+        }
+    }
+
+    fn set_ctrl(&self, id: u32, value: i32) -> Result<(), Errno> {
+        let dev = &self.0;
+        let mut ctrl = v4l2_control { id, value };
+
+        unsafe {
+            match vidioc_s_ctrl(dev.as_raw_fd(), &mut ctrl) {
+                Ok(_) => Ok(()),
+                _ => Err(errno::Errno(errno())),
+            }
+        }
+    }
+
+    fn query_ctrl(&self, id: u32) -> Result<V4l2CtrlRange, Errno> {
+        let dev = &self.0;
+        let mut qctrl = v4l2_queryctrl {
+            id,
+            ..Default::default()
+        };
+
+        unsafe {
+            match vidioc_queryctrl(dev.as_raw_fd(), &mut qctrl) {
+                Ok(_) => {
+                    if qctrl.flags & V4L2_CTRL_FLAG_DISABLED != 0 {
+                        return Err(errno::Errno(22)); // EINVAL
+                    }
+                    Ok(V4l2CtrlRange {
+                        minimum: qctrl.minimum,
+                        maximum: qctrl.maximum,
+                        step: qctrl.step,
+                        default_value: qctrl.default_value,
+                    })
+                }
+                _ => Err(errno::Errno(errno())),
+            }
+        }
+    }
 }
 
-pub(crate)
-fn open_camera(hint: &str) -> Result<CameraHandle, crate::Error> {
+pub(crate) fn open_camera(hint: &str) -> Result<CameraHandle, crate::Error> {
     if let Ok(file) = File::open(hint) {
         return Ok(file.into());
     }
@@ -201,3 +261,54 @@ pub const UVC_GET_LEN: u8 = 0x85;
 const UVC_GET_INFO: u8 = 0x86;
 #[allow(dead_code)]
 const UVC_GET_DEF: u8 = 0x87;
+
+// ---- Standard V4L2 controls for Pan/Tilt/Zoom ----
+
+/// V4L2 control struct for VIDIOC_G_CTRL / VIDIOC_S_CTRL
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Default, Debug)]
+pub struct v4l2_control {
+    pub id: u32,
+    pub value: i32,
+}
+
+/// V4L2 queryctrl struct for VIDIOC_QUERYCTRL
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Default, Debug)]
+pub struct v4l2_queryctrl {
+    pub id: u32,
+    pub ctrl_type: u32,
+    pub name: [u8; 32],
+    pub minimum: i32,
+    pub maximum: i32,
+    pub step: i32,
+    pub default_value: i32,
+    pub flags: u32,
+    pub reserved: [u32; 2],
+}
+
+const V4L2_CTRL_FLAG_DISABLED: u32 = 0x0001;
+
+// VIDIOC_G_CTRL = _IOWR('V', 27, struct v4l2_control)
+// VIDIOC_S_CTRL = _IOWR('V', 28, struct v4l2_control)
+// VIDIOC_QUERYCTRL = _IOWR('V', 36, struct v4l2_queryctrl)
+ioctl_readwrite!(vidioc_g_ctrl, b'V', 27, v4l2_control);
+ioctl_readwrite!(vidioc_s_ctrl, b'V', 28, v4l2_control);
+ioctl_readwrite!(vidioc_queryctrl, b'V', 36, v4l2_queryctrl);
+
+// Standard V4L2 Camera Control IDs
+// V4L2_CID_CAMERA_CLASS_BASE = 0x009A0900
+#[allow(dead_code)]
+pub const V4L2_CID_PAN_ABSOLUTE: u32 = 0x009A0908;
+#[allow(dead_code)]
+pub const V4L2_CID_TILT_ABSOLUTE: u32 = 0x009A0909;
+#[allow(dead_code)]
+pub const V4L2_CID_PAN_RELATIVE: u32 = 0x009A090A;
+#[allow(dead_code)]
+pub const V4L2_CID_TILT_RELATIVE: u32 = 0x009A090B;
+#[allow(dead_code)]
+pub const V4L2_CID_ZOOM_ABSOLUTE: u32 = 0x009A090D;
+#[allow(dead_code)]
+pub const V4L2_CID_ZOOM_RELATIVE: u32 = 0x009A090E;
