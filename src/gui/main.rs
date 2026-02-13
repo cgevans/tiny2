@@ -1,8 +1,18 @@
 use iced::widget::{button, column, container, mouse_area, row, text, text_input, toggler};
-use iced::{event, time, window, Alignment, Border, Element, Length, Subscription, Task, Theme};
+use iced::{
+    event, time, window, Alignment, Border, Element, Length, Subscription, Task, Theme,
+};
 use std::time::Duration;
 
 use tiny2::{AIMode, Camera, ExposureMode, FOVMode, OBSBotWebCam};
+
+/// Set from --debug flag at startup; controls debug UI and verbose logging.
+static mut DEBUG: bool = false;
+
+fn debug_mode() -> bool {
+    // SAFETY: only written once in main() before iced starts.
+    unsafe { DEBUG }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum PtzAction {
@@ -28,6 +38,7 @@ enum Message {
     StartMove(PtzAction),
     StopMove,
     Tick,
+
 }
 
 /// Step size for a PTZ axis, or None if the control is unavailable.
@@ -57,9 +68,18 @@ struct MainPanel {
 impl MainPanel {
     fn execute_ptz(&mut self, action: PtzAction) {
         let result = match action {
-            PtzAction::Pan(d) => self.camera.get_pan().and_then(|v| self.camera.set_pan(v + d)),
-            PtzAction::Tilt(d) => self.camera.get_tilt().and_then(|v| self.camera.set_tilt(v + d)),
-            PtzAction::Zoom(d) => self.camera.get_zoom().and_then(|v| self.camera.set_zoom(v + d)),
+            PtzAction::Pan(d) => self
+                .camera
+                .get_pan()
+                .and_then(|v| self.camera.set_pan(v + d)),
+            PtzAction::Tilt(d) => self
+                .camera
+                .get_tilt()
+                .and_then(|v| self.camera.set_tilt(v + d)),
+            PtzAction::Zoom(d) => self
+                .camera
+                .get_zoom()
+                .and_then(|v| self.camera.set_zoom(v + d)),
         };
         if let Err(e) = result {
             self.error_message = Some(format!("PTZ error: {}", e));
@@ -68,7 +88,8 @@ impl MainPanel {
 }
 
 fn boot() -> (MainPanel, Task<Message>) {
-    let camera = Camera::wait_for("OBSBOT Tiny 2", Duration::from_secs(1));
+    let mut camera = Camera::wait_for("OBSBOT Tiny 2", Duration::from_secs(1));
+    camera.set_verbose(debug_mode());
 
     let status = match camera.get_status() {
         Ok(s) => s,
@@ -341,23 +362,25 @@ fn view(state: &MainPanel) -> Element<Message> {
         c = c.push(text("PTZ controls not available for this device"));
     }
 
-    c = c.push(
-        column![
-            text_input("0x06 hex string", &state.text_input)
-                .on_input(Message::TextInput)
-                .on_submit(Message::SendCommand),
-            text_input("0x02 hex string", &state.text_input_02)
-                .on_input(Message::TextInput02)
-                .on_submit(Message::SendCommand02),
-            button("Dump 0x06")
-                .on_press(Message::HexDump)
-                .width(Length::Fill),
-            button("Dump 0x02")
-                .on_press(Message::HexDump02)
-                .width(Length::Fill),
-        ]
-        .spacing(10),
-    );
+    if debug_mode() {
+        c = c.push(
+            column![
+                text_input("0x06 hex string", &state.text_input)
+                    .on_input(Message::TextInput)
+                    .on_submit(Message::SendCommand),
+                text_input("0x02 hex string", &state.text_input_02)
+                    .on_input(Message::TextInput02)
+                    .on_submit(Message::SendCommand02),
+                button("Dump 0x06")
+                    .on_press(Message::HexDump)
+                    .width(Length::Fill),
+                button("Dump 0x02")
+                    .on_press(Message::HexDump02)
+                    .width(Length::Fill),
+            ]
+            .spacing(10),
+        );
+    }
 
     c.into()
 }
@@ -367,8 +390,7 @@ fn stop_on_mouse_release(
     _status: event::Status,
     _id: window::Id,
 ) -> Option<Message> {
-    if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) =
-        event
+    if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) = event
     {
         Some(Message::StopMove)
     } else {
@@ -386,9 +408,15 @@ fn subscription(state: &MainPanel) -> Subscription<Message> {
 }
 
 fn main() -> iced::Result {
+    // SAFETY: written once here before any other threads start.
+    unsafe {
+        DEBUG = std::env::args().any(|a| a == "--debug");
+    }
+
+    let window_height = if debug_mode() { 600.0 } else { 450.0 };
+
     iced::application(boot, update, view)
         .subscription(subscription)
-        .window_size((400.0, 700.0))
-        .resizable(false)
+        .window_size((400.0, window_height))
         .run()
 }

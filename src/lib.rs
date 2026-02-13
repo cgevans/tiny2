@@ -33,6 +33,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Camera {
     handle: usbio::CameraHandle,
+    verbose: bool,
 }
 
 pub struct CameraStatus {
@@ -245,7 +246,12 @@ impl Camera {
     pub fn new(hint: &str) -> Result<Self, Error> {
         Ok(Self {
             handle: usbio::open_camera(hint)?,
+            verbose: false,
         })
+    }
+
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.verbose = verbose;
     }
 
     /// Try to open the camera, retrying every `interval` until it appears.
@@ -397,14 +403,15 @@ impl Camera {
         match self.get_len(unit, selector) {
             Ok(size) => {
                 if data.len() < size {
-                    println!("Got size {}", size);
+                    if self.verbose {
+                        eprintln!("get_cur: buffer too small, got size {}", size);
+                    }
                     return Err(errno::Errno(1));
                 }
             }
             Err(err) => return Err(err),
         };
 
-        // Why not &mut data here?
         match self.io(unit, selector, usbio::UVC_GET_CUR, data) {
             Ok(_) => Ok(()),
             Err(err) => Err(err),
@@ -415,14 +422,18 @@ impl Camera {
         match self.get_len(unit, selector) {
             Ok(size) => {
                 if data.len() > size {
-                    println!("Got size {}", size);
+                    if self.verbose {
+                        eprintln!("set_cur: buffer too large, got size {}", size);
+                    }
                     return Err(errno::Errno(1));
                 }
             }
             Err(err) => return Err(err),
         };
 
-        println!("{:} {:} {:}", unit, selector, hex::encode(&data));
+        if self.verbose {
+            eprintln!("set_cur: {} {} {}", unit, selector, hex::encode(&data));
+        }
 
         match self.io(unit, selector, usbio::UVC_SET_CUR, data) {
             Ok(_) => Ok(()),
