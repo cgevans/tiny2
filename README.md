@@ -1,5 +1,3 @@
-This is a very simple Iced GUI for controlling the OBSBot Tiny 2 in Linux.
+This is a very simple Iced GUI for controlling the OBSBot Tiny 2 in Linux.  It is substantially based on [samliddicott's meet4k package](https://github.com/samliddicott/meet4k).  It's primarily for my own use, and I have limited time to work on it. 
 
-It must be run as root, currently.
-
-It is substantially based on [samliddicott's meet4k package](https://github.com/samliddicott/meet4k).
+I'm open to contributions to it, and I'm not opposed to AI use.  I may not have time to review them, but will try to; I also only have one Tiny 2, and sometimes am away from it for extended periods of time.  But if you submit a PR please show enough decency to have at least the explanation of it be something you wrote; if you submit wide-ranging AI-written PRs without a single word of human explanation I'll just block you.  If that's how you'd prefer to interact, please just maintain your own fork, while respecting the license.
