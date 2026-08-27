@@ -3,7 +3,7 @@
 [package]
 license = "EUPL-1.2"
 name = "tiny2"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A simple OBSBot Tiny2 GUI control panel for Linux"
 homepage = "https://github.com/cgevans/tiny2"
