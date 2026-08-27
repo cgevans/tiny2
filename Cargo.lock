@@ -790,18 +790,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
-name = "enum_dispatch"
-version = "0.3.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "enumflags2"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2995,8 +2983,6 @@ name = "tiny2"
 version = "0.1.0"
 dependencies = [
  "clap",
- "enum_dispatch",
- "errno",
  "glob",
  "hex",
  "hexdump",
@@ -3004,6 +2990,7 @@ dependencies = [
  "nix",
  "rosc",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
